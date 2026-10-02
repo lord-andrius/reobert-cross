@@ -4,11 +4,12 @@
 // see: https://zed.dev/docs/debugger
 [
   {
+    "label": "debug",
     "adapter": "CodeLLDB",
     "build": {
       "command": "odin",
       "cwd": "$ZED_WORKTREE_ROOT",
-      "args": ["build", ".", "-debug"]
+      "args": ["build", ".", "-debug", "-out:robert-cross"]
     },
     "request": "launch",
     "program": "robert-cross"
