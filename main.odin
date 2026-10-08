@@ -46,15 +46,17 @@ make_it_edgy_robert_cross :: proc(gray_img: []byte, width, height: int, allocato
 	return edgy_image
 }
 
-convolve :: proc(kernel: matrix[3, 3]f32, gray_img: []byte, width, height: int, allocator := context.allocator) -> []byte {
+get_index_of_image :: proc(x, y, width, height: int) -> int {
+    return (y * width) + x
+}
+
+
+convolve :: proc(kernel: matrix[3, 3]f32, gray_img: []byte, width, height: int, allocator := context.allocator) -> []f32 {
   
-    convoluted_image := make([]byte, width * height)
+    convoluted_image := make([]f32, width * height)
     view: matrix[3, 3]f32
 
-    get_index_of_image :: proc(x, y, width, height: int) -> int {
-        return (y * width) + x
-    }
-
+   
     for y in 0..<height {
 		for x in 0..<width {
             view[1][1] = f32(gray_img[get_index_of_image(x, y, width, height)])
@@ -102,7 +104,7 @@ convolve :: proc(kernel: matrix[3, 3]f32, gray_img: []byte, width, height: int, 
             }
 
             //bottom-left
-            if y + 1 > height - 1 || x + 1 > width - 1 {
+            if y + 1 > height - 1 || x - 1 < 0 {
                 view[2][0] = view[1][1]
             } else {
                 view[2][0] = f32(gray_img[get_index_of_image(x - 1, y + 1, width, height)])
@@ -121,7 +123,7 @@ convolve :: proc(kernel: matrix[3, 3]f32, gray_img: []byte, width, height: int, 
             for i in 0..<3 {
                 sum += hadamard[i][0] + hadamard[i][1] + hadamard[i][2]
             }
-            convoluted_image[get_index_of_image(x, y, width, height)] = byte(sum)
+            convoluted_image[get_index_of_image(x, y, width, height)] = sum
         }
 	}
 
@@ -130,13 +132,63 @@ convolve :: proc(kernel: matrix[3, 3]f32, gray_img: []byte, width, height: int, 
 
 }
 
-// make_it_edgy_rober_cross :: proc(gray_img: []byte, width, height: int, allocator := context.allocator) -> []byte {
-//     for y in 0..<height {
-//         for x in 0..<width {
-            
-//         }
-//     }
-// }
+make_it_edgy_sobbel :: proc(gray_img: []byte, width, height: int, allocator := context.allocator) -> []byte {
+    defer free_all(context.temp_allocator)
+    x_kernel := matrix[3,3]f32{
+        -1, 0, +1,
+        -2, 0, +2,
+        -1, 0, +1
+    }
+
+    y_kernel := matrix[3,3]f32 {
+        -1, -2, -1,
+         0,  0,  0,
+        +1, +2, +1
+    }
+
+    x_convolution := convolve(x_kernel, gray_img, width, height, context.temp_allocator)
+    y_convolution := convolve(y_kernel, gray_img, width, height, context.temp_allocator)
+
+    result := make([]byte, width * height, allocator)
+
+    for y in 0..<height {
+        for x in 0..<width {
+            index := get_index_of_image(x, y, width, height)
+            result[index] = u8(math.sqrt(math.pow(x_convolution[index], 2) + math.pow(y_convolution[index], 2)))
+        }
+    }
+
+    return result
+}
+
+make_it_edgy_scharr :: proc(gray_img: []byte, width, height: int, allocator := context.allocator) -> []byte {
+    defer free_all(context.temp_allocator)
+    x_kernel := matrix[3,3]f32{
+        -3, 0, +3,
+        -10, 0, +10,
+        -3, 0, +3
+    }
+
+    y_kernel := matrix[3,3]f32 {
+        3, 10, 3,
+        0,  0,  0,
+       -3, -10, -3
+    }
+
+    x_convolution := convolve(x_kernel, gray_img, width, height, context.temp_allocator)
+    y_convolution := convolve(y_kernel, gray_img, width, height, context.temp_allocator)
+
+    result := make([]byte, width * height, allocator)
+
+    for y in 0..<height {
+        for x in 0..<width {
+            index := get_index_of_image(x, y, width, height)
+            result[index] = u8(math.sqrt(math.pow(x_convolution[index], 2) + math.pow(y_convolution[index], 2)))
+        }
+    }
+
+    return result
+}
 
 draw_one_channel_image :: proc(img: []byte, width, height: int, initial_x: c.int = 0, initial_y: c.int = 0) {
     indice_pixel := 0
@@ -156,14 +208,8 @@ main :: proc() {
     imagem_vasos, _ := png.load_from_bytes(vasos_byte_png)
     gray_image := make_it_gray(imagem_vasos)
     edgy_image := make_it_edgy_robert_cross(gray_image, imagem_vasos.width, imagem_vasos.height)
-    blurred_image := convolve(
-        matrix[3,3]f32{
-        1./9., 1./9., 1./9.,
-        1./9., 1./9., 1./9.,
-        1./9., 1./9., 1./9.,},
-        gray_image,
-        imagem_vasos.width, imagem_vasos.height
-    )
+    sobbel := make_it_edgy_sobbel(gray_image, imagem_vasos.width, imagem_vasos.height)
+    scharr := make_it_edgy_scharr(gray_image, imagem_vasos.width, imagem_vasos.height)
 
     
     rl.InitWindow(2560, 1080, "robert cross")
@@ -171,7 +217,8 @@ main :: proc() {
         rl.BeginDrawing()
         draw_one_channel_image(gray_image, imagem_vasos.width, imagem_vasos.height)
         draw_one_channel_image(edgy_image, imagem_vasos.width, imagem_vasos.height, c.int(imagem_vasos.width))
-        draw_one_channel_image(blurred_image, imagem_vasos.width, imagem_vasos.height, c.int(imagem_vasos.width) * 2)
+        draw_one_channel_image(sobbel, imagem_vasos.width, imagem_vasos.height, c.int(imagem_vasos.width) * 2)
+        draw_one_channel_image(scharr, imagem_vasos.width, imagem_vasos.height, c.int(imagem_vasos.width) * 3)
         rl.EndDrawing()
     }
 }
